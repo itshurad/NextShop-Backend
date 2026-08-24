@@ -38,7 +38,7 @@ async function setAccessToken(res, user) {
   res.cookie(
     "accessToken",
     await generateToken(user, "1d", process.env.ACCESS_TOKEN_SECRET_KEY),
-    cookieOptions
+    cookieOptions,
   );
 }
 
@@ -56,7 +56,7 @@ async function setRefreshToken(res, user) {
   res.cookie(
     "refreshToken",
     await generateToken(user, "1y", process.env.REFRESH_TOKEN_SECRET_KEY),
-    cookieOptions
+    cookieOptions,
   );
 }
 
@@ -77,7 +77,7 @@ function generateToken(user, expiresIn, secret) {
       (err, token) => {
         if (err) reject(createError.InternalServerError("خطای سروری"));
         resolve(token);
-      }
+      },
     );
   });
 }
@@ -88,7 +88,7 @@ function verifyRefreshToken(req) {
   }
   const token = cookieParser.signedCookie(
     refreshToken,
-    process.env.COOKIE_PARSER_SECRET_KEY
+    process.env.COOKIE_PARSER_SECRET_KEY,
   );
   return new Promise((resolve, reject) => {
     JWT.verify(
@@ -109,7 +109,7 @@ function verifyRefreshToken(req) {
         } catch (error) {
           reject(createError.Unauthorized("حساب کاربری یافت نشد"));
         }
-      }
+      },
     );
   });
 }
@@ -120,7 +120,10 @@ async function getUserCartDetail(userId) {
       $match: { _id: userId },
     },
     {
-      $project: { cart: 1, name: 1 },
+      $project: {
+        cart: 1,
+        name: 1,
+      },
     },
     {
       $lookup: {
@@ -155,139 +158,132 @@ async function getUserCartDetail(userId) {
         },
       },
     },
-    {
-      $addFields: {
-        productDetail: {
-          $function: {
-            body: function (productDetail, products) {
-              return productDetail.map(function (product) {
-                const quantity = products.find(
-                  (item) => item.productId.valueOf() == product._id.valueOf()
-                ).quantity;
-                // const totalPrice = count * product.price;
-                return {
-                  ...product,
-                  quantity,
-                  // totalPrice,
-                  // finalPrice:
-                  //   totalPrice - (product.discount / 100) * totalPrice,
-                };
-              });
-            },
-            args: ["$productDetail", "$cart.products"],
-            lang: "js",
-          },
-        },
-      },
-    },
-    {
-      $addFields: {
-        discountDetail: {
-          $function: {
-            body: function discountDetail(productDetail, coupon) {
-              if (!coupon)
-                return { newProductDetail: productDetail, coupon: null };
-              const isExpiredCoupon =
-                coupon.expireDate &&
-                new Date(coupon.expireDate).getTime() < Date.now();
-              const isReachedLimit = coupon.usageCount >= coupon.usageLimit;
-              if (!coupon.isActive || isReachedLimit || isExpiredCoupon)
-                return null;
+  ]);
 
-              const newProductDetail = productDetail.map((product) => {
-                if (product.discount) return product;
-                if (coupon.productIds.find((id) => id.equals(product._id))) {
-                  if (coupon.type === "fixedProduct") {
-                    if (product.price < coupon.amount) return product;
-                    return {
-                      ...product,
-                      offPrice: product.price - coupon.amount,
-                    };
-                  }
-                  if (coupon.type === "percent") {
-                    return {
-                      ...product,
-                      offPrice: parseInt(
-                        product.price * (1 - coupon.amount / 100)
-                      ),
-                    };
-                  }
-                } else return product;
-              });
+  if (!cartDetail.length) return [];
 
-              return {
-                newProductDetail,
-                coupon: { code: coupon.code, _id: coupon._id },
-              };
-            },
-            args: ["$productDetail", "$coupon"],
-            lang: "js",
-          },
-        },
-      },
-    },
+  const cart = cartDetail[0];
+
+  // --------------------------------------------------
+  // Add quantity to each product
+  // --------------------------------------------------
+
+  let productDetail = cart.productDetail.map((product) => {
+    const cartProduct = cart.cart.products.find(
+      (item) => item.productId.toString() === product._id.toString(),
+    );
+
+    return {
+      ...product,
+      quantity: cartProduct?.quantity || 0,
+    };
+  });
+
+  // --------------------------------------------------
+  // Apply coupon
+  // --------------------------------------------------
+
+  let coupon = cart.coupon;
+
+  if (!coupon) {
+    coupon = null;
+  } else {
+    const isExpiredCoupon =
+      coupon.expireDate && new Date(coupon.expireDate).getTime() < Date.now();
+
+    const isReachedLimit = coupon.usageCount >= coupon.usageLimit;
+
+    if (!coupon.isActive || isReachedLimit || isExpiredCoupon) {
+      coupon = null;
+    } else {
+      productDetail = productDetail.map((product) => {
+        // Product already has discount
+        if (product.discount) return product;
+
+        const couponHasProduct = coupon.productIds?.some(
+          (id) => id.toString() === product._id.toString(),
+        );
+
+        if (!couponHasProduct) return product;
+
+        // Fixed product coupon
+        if (coupon.type === "fixedProduct") {
+          if (product.price < coupon.amount) {
+            return product;
+          }
+
+          return {
+            ...product,
+            offPrice: product.price - coupon.amount,
+          };
+        }
+
+        // Percentage coupon
+        if (coupon.type === "percent") {
+          return {
+            ...product,
+            offPrice: parseInt(product.price * (1 - coupon.amount / 100)),
+          };
+        }
+
+        return product;
+      });
+
+      coupon = {
+        code: coupon.code,
+        _id: coupon._id,
+      };
+    }
+  }
+
+  // --------------------------------------------------
+  // Payment details
+  // --------------------------------------------------
+
+  const totalPrice = productDetail.reduce(
+    (total, product) => total + parseInt(product.offPrice * product.quantity),
+    0,
+  );
+
+  const totalGrossPrice = productDetail.reduce(
+    (total, product) => total + parseInt(product.price * product.quantity),
+    0,
+  );
+
+  const totalOffAmount = productDetail.reduce(
+    (total, product) =>
+      total + parseInt((product.price - product.offPrice) * product.quantity),
+    0,
+  );
+
+  const orderItems = productDetail.map((product) => ({
+    price: product.offPrice,
+    product: product._id,
+  }));
+
+  const productIds = productDetail.map((product) => product._id);
+
+  const description = `${productDetail
+    .map((product) => product.title)
+    .join(" - ")} | ${cart.name}`;
+
+  const payDetail = {
+    totalOffAmount,
+    totalPrice,
+    totalGrossPrice,
+    orderItems,
+    productIds,
+    description,
+  };
+
+  return copyObject([
     {
-      $addFields: {
-        payDetail: {
-          $function: {
-            body: function (productDetail, userName) {
-              const totalPrice = productDetail.reduce((total, product) => {
-                return total + parseInt(product.offPrice * product.quantity);
-              }, 0);
-              const totalGrossPrice = productDetail.reduce((total, product) => {
-                return total + parseInt(product.price * product.quantity);
-              }, 0);
-              const totalOffAmount = productDetail.reduce((total, product) => {
-                return (
-                  total +
-                  parseInt(
-                    (product.price - product.offPrice) * product.quantity
-                  )
-                );
-              }, 0);
-              const orderItems = [];
-              productDetail.map((product) => {
-                orderItems.push({
-                  price: product.offPrice,
-                  product: product._id,
-                });
-              });
-              const productIds = productDetail.map((product) =>
-                product._id.valueOf()
-              );
-              const description = `${productDetail
-                .map((p) => p.title)
-                .join(" - ")} | ${userName}`;
-              return {
-                totalOffAmount, // including discount and coupon
-                totalPrice,
-                totalGrossPrice,
-                orderItems,
-                productIds,
-                description,
-              };
-            },
-            args: ["$discountDetail.newProductDetail", "$name"],
-            lang: "js",
-          },
-        },
-      },
-    },
-    {
-      $set: {
-        productDetail: "$discountDetail.newProductDetail",
-        coupon: "$discountDetail.coupon",
-      },
-    },
-    {
-      $project: {
-        cart: 0,
-        name: 0,
-        discountDetail: 0,
-      },
+      ...cart,
+      productDetail,
+      coupon,
+      payDetail,
     },
   ]);
-  return copyObject(cartDetail);
 }
 function copyObject(object) {
   return JSON.parse(JSON.stringify(object));
