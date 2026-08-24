@@ -1,5 +1,2 @@
-const Application = require("./index.js");
-
-const app = new Application();
-
-module.exports = app.getApp();
+const Application = require("./app/server.js");
+new Application();
