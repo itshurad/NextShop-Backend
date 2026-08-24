@@ -1,4 +1,4 @@
-const Application = require("./app/server.js");
+const Application = require("./index.js");
 
 const app = new Application();
 
