@@ -10,6 +10,7 @@ const { allRoutes } = require("./router/router");
 dotenv.config();
 class Application {
   #app = express();
+
   #PORT = process.env.PORT || 5000;
   #DB_URI = process.env.APP_DB;
 
@@ -21,6 +22,11 @@ class Application {
     this.configRoutes();
     this.errorHandling();
   }
+
+  get app() {
+    return this.#app;
+  }
+
   createServer() {
     if (!process.env.VERCEL) {
       this.#app.listen(this.#PORT, () =>
@@ -28,6 +34,7 @@ class Application {
       );
     }
   }
+
   connectToDB() {
     mongoose
       .connect(this.#DB_URI, {
@@ -50,9 +57,6 @@ class Application {
   }
   configRoutes() {
     this.#app.use("/api", allRoutes);
-  }
-  get app() {
-    return this.#app;
   }
   errorHandling() {
     this.#app.use((req, res, next) => {
