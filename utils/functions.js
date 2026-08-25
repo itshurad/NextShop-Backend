@@ -24,6 +24,7 @@ function toPersianDigits(n) {
   return n.toString().replace(/\d/g, (x) => farsiDigits[parseInt(x)]);
 }
 
+
 async function setAccessToken(res, user) {
   const cookieOptions = {
     maxAge: 7 * 24 * 60 * 60 * 1000,
