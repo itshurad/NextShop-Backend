@@ -26,12 +26,17 @@ function toPersianDigits(n) {
 
 async function setAccessToken(res, user) {
   const cookieOptions = {
-    maxAge: 1000 * 60 * 60 * 24 * 1,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     signed: true,
     sameSite: "Lax",
-    secure: process.env.NODE_ENV === "development" ? false : true,
+    secure: process.env.NODE_ENV === "production", // روی Vercel ترو می‌شود
   };
+
+  res.cookie("token", yourJwtToken, {
+    httpOnly: true,
+    sameSite: "lax", // این بهترین و امن‌ترین حالت است
+  });
 
   res.cookie(
     "accessToken",
