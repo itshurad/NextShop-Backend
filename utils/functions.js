@@ -24,20 +24,16 @@ function toPersianDigits(n) {
   return n.toString().replace(/\d/g, (x) => farsiDigits[parseInt(x)]);
 }
 
-
 async function setAccessToken(res, user) {
   const cookieOptions = {
     maxAge: 7 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     signed: true,
-    sameSite: "Lax",
-    secure: process.env.NODE_ENV === "production", // روی Vercel ترو می‌شود
+    // وقتی دامنه‌ها متفاوت است باید none باشد
+    sameSite: "none",
+    // روی Vercel و دامنه های متفاوت، secure الزاما باید true باشد
+    secure: true,
   };
-
-  res.cookie("token", yourJwtToken, {
-    httpOnly: true,
-    sameSite: "lax", // این بهترین و امن‌ترین حالت است
-  });
 
   res.cookie(
     "accessToken",
@@ -51,8 +47,8 @@ async function setRefreshToken(res, user) {
     maxAge: 1000 * 60 * 60 * 24 * 365,
     httpOnly: true,
     signed: true,
-    sameSite: "Lax",
-    secure: process.env.NODE_ENV === "development" ? false : true,
+    sameSite: "none",
+    secure: true,
   };
 
   res.cookie(
@@ -83,6 +79,7 @@ function generateToken(user, expiresIn, secret) {
     );
   });
 }
+
 function verifyRefreshToken(req) {
   const refreshToken = req.signedCookies["refreshToken"];
   if (!refreshToken) {
@@ -166,10 +163,6 @@ async function getUserCartDetail(userId) {
 
   const cart = cartDetail[0];
 
-  // --------------------------------------------------
-  // Add quantity to each product
-  // --------------------------------------------------
-
   let productDetail = cart.productDetail.map((product) => {
     const cartProduct = cart.cart.products.find(
       (item) => item.productId.toString() === product._id.toString(),
@@ -180,10 +173,6 @@ async function getUserCartDetail(userId) {
       quantity: cartProduct?.quantity || 0,
     };
   });
-
-  // --------------------------------------------------
-  // Apply coupon
-  // --------------------------------------------------
 
   let coupon = cart.coupon;
 
@@ -199,7 +188,6 @@ async function getUserCartDetail(userId) {
       coupon = null;
     } else {
       productDetail = productDetail.map((product) => {
-        // Product already has discount
         if (product.discount) return product;
 
         const couponHasProduct = coupon.productIds?.some(
@@ -208,7 +196,6 @@ async function getUserCartDetail(userId) {
 
         if (!couponHasProduct) return product;
 
-        // Fixed product coupon
         if (coupon.type === "fixedProduct") {
           if (product.price < coupon.amount) {
             return product;
@@ -220,7 +207,6 @@ async function getUserCartDetail(userId) {
           };
         }
 
-        // Percentage coupon
         if (coupon.type === "percent") {
           return {
             ...product,
@@ -237,10 +223,6 @@ async function getUserCartDetail(userId) {
       };
     }
   }
-
-  // --------------------------------------------------
-  // Payment details
-  // --------------------------------------------------
 
   const totalPrice = productDetail.reduce(
     (total, product) => total + parseInt(product.offPrice * product.quantity),
@@ -287,11 +269,12 @@ async function getUserCartDetail(userId) {
     },
   ]);
 }
+
 function copyObject(object) {
   return JSON.parse(JSON.stringify(object));
 }
+
 function deleteInvalidPropertyInObject(data = {}, blackListFields = []) {
-  // let nullishData = ["", " ", "0", 0, null, undefined];
   let nullishData = ["", " ", null, undefined];
   Object.keys(data).forEach((key) => {
     if (blackListFields.includes(key)) delete data[key];
@@ -302,6 +285,7 @@ function deleteInvalidPropertyInObject(data = {}, blackListFields = []) {
     if (nullishData.includes(data[key])) delete data[key];
   });
 }
+
 async function checkProductExist(id) {
   const { ProductModel } = require("../app/models/product");
   if (!mongoose.isValidObjectId(id))
