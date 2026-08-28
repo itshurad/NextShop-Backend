@@ -24,57 +24,39 @@ function toPersianDigits(n) {
   return n.toString().replace(/\d/g, (x) => farsiDigits[parseInt(x)]);
 }
 
-/**
- * تنظیمات مشترک کوکی.
- * نکته کلیدی: چون فرانت و بک‌اند روی دو دامنه متفاوت هستند (next-shop-hurad.vercel.app
- * و next-shop-backend-hazel.vercel.app)، این یک درخواست Cross-Site محسوب می‌شود.
- * برای این‌که مرورگر کوکی را در درخواست‌های Cross-Site ارسال کند، باید:
- *   - sameSite: "none"
- *   - secure: true   (اجباری وقتی sameSite برابر none است)
- * در حالت development (لوکال، هر دو روی localhost) باید sameSite روی "lax" و
- * secure روی false بماند، چون روی http محلی secure=true کار نمی‌کند.
- *
- * هرگز domain را به یک مقدار ثابت مثل "localhost" ست نکنید؛ چون در پروداکشن
- * باعث رد شدن کامل هدر Set-Cookie توسط مرورگر می‌شود. فقط وقتی COOKIE_DOMAIN
- * در env تعریف شده باشد (مثلاً برای ساب‌دامین‌های یک دامنه‌ی مشترک) اعمال می‌شود.
- */
-function getCookieOptions(maxAge) {
-  const isProd = process.env.NODE_ENV === "production";
-
-  const options = {
-    maxAge,
-    httpOnly: true,
-    signed: true,
-    sameSite: isProd ? "none" : "lax",
-    secure: isProd, // sameSite=none بدون secure توسط مرورگرها رد می‌شود
-    path: "/",
-  };
-
-  // فقط اگر صراحتاً در env ست شده باشد اعمال کن (برای دامنه‌های Cross-Origin نباید ست شود)
-  if (process.env.COOKIE_DOMAIN) {
-    options.domain = process.env.COOKIE_DOMAIN;
-  }
-
-  return options;
-}
-
 async function setAccessToken(res, user) {
-  const cookieOptions = getCookieOptions(24 * 60 * 60 * 1000); // 1 روز - هم‌راستا با انقضای توکن
-
+  const cookieOptions = {
+    maxAge: 1000 * 60 * 60 * 24 * 1, // would expire after 1 days
+    httpOnly: true, // The cookie only accessible by the web server
+    signed: true, // Indicates if the cookie should be signed
+    sameSite: "Lax",
+    secure: process.env.NODE_ENV === "development" ? false : true,
+    domain: process.env.DOMAIN,
+    // domain:
+    //   process.env.NODE_ENV === "development" ? "localhost" : ".fronthooks.ir",
+  };
   res.cookie(
     "accessToken",
     await generateToken(user, "1d", process.env.ACCESS_TOKEN_SECRET_KEY),
-    cookieOptions,
+    cookieOptions
   );
 }
 
 async function setRefreshToken(res, user) {
-  const cookieOptions = getCookieOptions(1000 * 60 * 60 * 24 * 365); // 1 سال
-
+  const cookieOptions = {
+    maxAge: 1000 * 60 * 60 * 24 * 365, // would expire after 1 year
+    httpOnly: true, // The cookie only accessible by the web server
+    signed: true, // Indicates if the cookie should be signed
+    sameSite: "Lax",
+    secure: process.env.NODE_ENV === "development" ? false : true,
+    domain: process.env.DOMAIN,
+    // domain:
+    //   process.env.NODE_ENV === "development" ? "localhost" : ".fronthooks.ir",
+  };
   res.cookie(
     "refreshToken",
     await generateToken(user, "1y", process.env.REFRESH_TOKEN_SECRET_KEY),
-    cookieOptions,
+    cookieOptions
   );
 }
 
@@ -93,13 +75,12 @@ function generateToken(user, expiresIn, secret) {
       secret || process.env.TOKEN_SECRET_KEY,
       options,
       (err, token) => {
-        if (err) return reject(createError.InternalServerError("خطای سروری"));
+        if (err) reject(createError.InternalServerError("خطای سروری"));
         resolve(token);
-      },
+      }
     );
   });
 }
-
 function verifyRefreshToken(req) {
   const refreshToken = req.signedCookies["refreshToken"];
   if (!refreshToken) {
@@ -107,7 +88,7 @@ function verifyRefreshToken(req) {
   }
   const token = cookieParser.signedCookie(
     refreshToken,
-    process.env.COOKIE_PARSER_SECRET_KEY,
+    process.env.COOKIE_PARSER_SECRET_KEY
   );
   return new Promise((resolve, reject) => {
     JWT.verify(
@@ -116,22 +97,19 @@ function verifyRefreshToken(req) {
       async (err, payload) => {
         try {
           if (err)
-            return reject(
-              createError.Unauthorized("لطفا حساب کاربری خود شوید"),
-            );
+            reject(createError.Unauthorized("لطفا حساب کاربری خود شوید"));
           const { _id } = payload;
           const user = await UserModel.findById(_id, {
             password: 0,
             otp: 0,
             resetLink: 0,
           });
-          if (!user)
-            return reject(createError.Unauthorized("حساب کاربری یافت نشد"));
+          if (!user) reject(createError.Unauthorized("حساب کاربری یافت نشد"));
           return resolve(_id);
         } catch (error) {
           reject(createError.Unauthorized("حساب کاربری یافت نشد"));
         }
-      },
+      }
     );
   });
 }
@@ -142,10 +120,7 @@ async function getUserCartDetail(userId) {
       $match: { _id: userId },
     },
     {
-      $project: {
-        cart: 1,
-        name: 1,
-      },
+      $project: { cart: 1, name: 1 },
     },
     {
       $lookup: {
@@ -180,124 +155,145 @@ async function getUserCartDetail(userId) {
         },
       },
     },
-  ]);
-
-  if (!cartDetail.length) return [];
-
-  const cart = cartDetail[0];
-
-  let productDetail = cart.productDetail.map((product) => {
-    const cartProduct = cart.cart.products.find(
-      (item) => item.productId.toString() === product._id.toString(),
-    );
-
-    return {
-      ...product,
-      quantity: cartProduct?.quantity || 0,
-    };
-  });
-
-  let coupon = cart.coupon;
-
-  if (!coupon) {
-    coupon = null;
-  } else {
-    const isExpiredCoupon =
-      coupon.expireDate && new Date(coupon.expireDate).getTime() < Date.now();
-
-    const isReachedLimit = coupon.usageCount >= coupon.usageLimit;
-
-    if (!coupon.isActive || isReachedLimit || isExpiredCoupon) {
-      coupon = null;
-    } else {
-      productDetail = productDetail.map((product) => {
-        if (product.discount) return product;
-
-        const couponHasProduct = coupon.productIds?.some(
-          (id) => id.toString() === product._id.toString(),
-        );
-
-        if (!couponHasProduct) return product;
-
-        if (coupon.type === "fixedProduct") {
-          if (product.price < coupon.amount) {
-            return product;
-          }
-
-          return {
-            ...product,
-            offPrice: product.price - coupon.amount,
-          };
-        }
-
-        if (coupon.type === "percent") {
-          return {
-            ...product,
-            offPrice: parseInt(product.price * (1 - coupon.amount / 100)),
-          };
-        }
-
-        return product;
-      });
-
-      coupon = {
-        code: coupon.code,
-        _id: coupon._id,
-      };
-    }
-  }
-
-  const totalPrice = productDetail.reduce(
-    (total, product) => total + parseInt(product.offPrice * product.quantity),
-    0,
-  );
-
-  const totalGrossPrice = productDetail.reduce(
-    (total, product) => total + parseInt(product.price * product.quantity),
-    0,
-  );
-
-  const totalOffAmount = productDetail.reduce(
-    (total, product) =>
-      total + parseInt((product.price - product.offPrice) * product.quantity),
-    0,
-  );
-
-  const orderItems = productDetail.map((product) => ({
-    price: product.offPrice,
-    product: product._id,
-  }));
-
-  const productIds = productDetail.map((product) => product._id);
-
-  const description = `${productDetail
-    .map((product) => product.title)
-    .join(" - ")} | ${cart.name}`;
-
-  const payDetail = {
-    totalOffAmount,
-    totalPrice,
-    totalGrossPrice,
-    orderItems,
-    productIds,
-    description,
-  };
-
-  return copyObject([
     {
-      ...cart,
-      productDetail,
-      coupon,
-      payDetail,
+      $addFields: {
+        productDetail: {
+          $function: {
+            body: function (productDetail, products) {
+              return productDetail.map(function (product) {
+                const quantity = products.find(
+                  (item) => item.productId.valueOf() == product._id.valueOf()
+                ).quantity;
+                // const totalPrice = count * product.price;
+                return {
+                  ...product,
+                  quantity,
+                  // totalPrice,
+                  // finalPrice:
+                  //   totalPrice - (product.discount / 100) * totalPrice,
+                };
+              });
+            },
+            args: ["$productDetail", "$cart.products"],
+            lang: "js",
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        discountDetail: {
+          $function: {
+            body: function discountDetail(productDetail, coupon) {
+              if (!coupon)
+                return { newProductDetail: productDetail, coupon: null };
+              const isExpiredCoupon =
+                coupon.expireDate &&
+                new Date(coupon.expireDate).getTime() < Date.now();
+              const isReachedLimit = coupon.usageCount >= coupon.usageLimit;
+              if (!coupon.isActive || isReachedLimit || isExpiredCoupon)
+                return null;
+
+              const newProductDetail = productDetail.map((product) => {
+                if (product.discount) return product;
+                if (coupon.productIds.find((id) => id.equals(product._id))) {
+                  if (coupon.type === "fixedProduct") {
+                    if (product.price < coupon.amount) return product;
+                    return {
+                      ...product,
+                      offPrice: product.price - coupon.amount,
+                    };
+                  }
+                  if (coupon.type === "percent") {
+                    return {
+                      ...product,
+                      offPrice: parseInt(
+                        product.price * (1 - coupon.amount / 100)
+                      ),
+                    };
+                  }
+                } else return product;
+              });
+
+              return {
+                newProductDetail,
+                coupon: { code: coupon.code, _id: coupon._id },
+              };
+            },
+            args: ["$productDetail", "$coupon"],
+            lang: "js",
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        payDetail: {
+          $function: {
+            body: function (productDetail, userName) {
+              const totalPrice = productDetail.reduce((total, product) => {
+                return total + parseInt(product.offPrice * product.quantity);
+              }, 0);
+              const totalGrossPrice = productDetail.reduce((total, product) => {
+                return total + parseInt(product.price * product.quantity);
+              }, 0);
+              const totalOffAmount = productDetail.reduce((total, product) => {
+                return (
+                  total +
+                  parseInt(
+                    (product.price - product.offPrice) * product.quantity
+                  )
+                );
+              }, 0);
+              const orderItems = [];
+              productDetail.map((product) => {
+                orderItems.push({
+                  price: product.offPrice,
+                  product: product._id,
+                });
+              });
+              const productIds = productDetail.map((product) =>
+                product._id.valueOf()
+              );
+              const description = `${productDetail
+                .map((p) => p.title)
+                .join(" - ")} | ${userName}`;
+              return {
+                totalOffAmount, // including discount and coupon
+                totalPrice,
+                totalGrossPrice,
+                orderItems,
+                productIds,
+                description,
+              };
+            },
+            args: ["$discountDetail.newProductDetail", "$name"],
+            lang: "js",
+          },
+        },
+      },
+    },
+    {
+      $set: {
+        productDetail: "$discountDetail.newProductDetail",
+        coupon: "$discountDetail.coupon",
+      },
+    },
+    {
+      $project: {
+        cart: 0,
+        name: 0,
+        discountDetail: 0,
+      },
     },
   ]);
+  return copyObject(cartDetail);
 }
-
 function copyObject(object) {
   return JSON.parse(JSON.stringify(object));
 }
-
 function deleteInvalidPropertyInObject(data = {}, blackListFields = []) {
+  // let nullishData = ["", " ", "0", 0, null, undefined];
   let nullishData = ["", " ", null, undefined];
   Object.keys(data).forEach((key) => {
     if (blackListFields.includes(key)) delete data[key];
@@ -308,7 +304,6 @@ function deleteInvalidPropertyInObject(data = {}, blackListFields = []) {
     if (nullishData.includes(data[key])) delete data[key];
   });
 }
-
 async function checkProductExist(id) {
   const { ProductModel } = require("../app/models/product");
   if (!mongoose.isValidObjectId(id))
@@ -337,5 +332,4 @@ module.exports = {
   checkProductExist,
   invoiceNumberGenerator,
   secretKeyGenerator,
-  getCookieOptions,
 };

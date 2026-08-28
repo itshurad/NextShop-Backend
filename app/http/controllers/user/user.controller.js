@@ -10,7 +10,7 @@ const {
 const createError = require("http-errors");
 const { UserModel } = require("../../../models/user");
 const Kavenegar = require("kavenegar");
-const CODE_EXPIRES = 90 * 1000;
+const CODE_EXPIRES = 90 * 1000; //90 seconds in miliseconds
 const { StatusCodes: HttpStatus } = require("http-status-codes");
 const path = require("path");
 const { ROLES } = require("../../../../utils/constants");
@@ -27,7 +27,6 @@ class userAuthController extends Controller {
     this.code = 0;
     this.phoneNumber = null;
   }
-
   async getOtp(req, res) {
     let { phoneNumber } = req.body;
 
@@ -41,7 +40,8 @@ class userAuthController extends Controller {
     const result = await this.saveUser(phoneNumber);
     if (!result) throw createError.Unauthorized("ورود شما انجام نشد.");
 
-    if (process.env.IS_TESTING_MODE_OTP === "true") {
+    // send OTP
+    if (process.env.IS_TESTING_MODE_OTP) {
       return res.status(HttpStatus.OK).send({
         statusCode: HttpStatus.OK,
         data: {
@@ -54,15 +54,34 @@ class userAuthController extends Controller {
       this.sendOTP(phoneNumber, res);
     }
   }
-
   async checkOtp(req, res) {
     await checkOtpSchema.validateAsync(req.body);
     const { otp: code, phoneNumber } = req.body;
 
     const user = await UserModel.findOne(
       { phoneNumber },
-      { password: 0, refreshToken: 0, accessToken: 0 },
+      { password: 0, refreshToken: 0, accessToken: 0 }
     );
+    // .populate([
+    //   {
+    //     path: "Products",
+    //     model: "Product",
+    //     select: {
+    //       title: 1,
+    //       slug: 1,
+    //       price: 1,
+    //       icon: 1,
+    //     },
+    //     populate: [
+    //       {
+    //         // deeper
+    //         path: "seller",
+    //         model: "Seller",
+    //         select: { name: 1, icon: 1 },
+    //       },
+    //     ],
+    //   },
+    // ]);
 
     if (!user) throw createError.NotFound("کاربری با این مشخصات یافت نشد");
 
@@ -75,6 +94,7 @@ class userAuthController extends Controller {
     user.isVerifiedPhoneNumber = true;
     await user.save();
 
+    // await setAuthCookie(res, user); // set httpOnly cookie
     await setAccessToken(res, user);
     await setRefreshToken(res, user);
     let WELLCOME_MESSAGE = `کد تایید شد، به فرانت هوکس خوش آمدید`;
@@ -89,7 +109,6 @@ class userAuthController extends Controller {
       },
     });
   }
-
   async saveUser(phoneNumber) {
     const otp = {
       code: this.code,
@@ -105,12 +124,10 @@ class userAuthController extends Controller {
       role: ROLES.USER,
     });
   }
-
   async checkUserExist(phoneNumber) {
     const user = await UserModel.findOne({ phoneNumber });
     return user;
   }
-
   async updateUser(phoneNumber, objectData = {}) {
     Object.keys(objectData).forEach((key) => {
       if (["", " ", 0, null, undefined, "0", NaN].includes(objectData[key]))
@@ -118,11 +135,10 @@ class userAuthController extends Controller {
     });
     const updatedResult = await UserModel.updateOne(
       { phoneNumber },
-      { $set: objectData },
+      { $set: objectData }
     );
     return !!updatedResult.modifiedCount;
   }
-
   sendOTP(phoneNumber, res) {
     const kaveNegarApi = Kavenegar.KavenegarApi({
       apikey: `${process.env.KAVENEGAR_API_KEY}`,
@@ -140,7 +156,7 @@ class userAuthController extends Controller {
             statusCode: HttpStatus.OK,
             data: {
               message: `کد تائید برای شماره موبایل ${toPersianDigits(
-                phoneNumber,
+                phoneNumber
               )} ارسال گردید`,
               expiresIn: CODE_EXPIRES,
               phoneNumber,
@@ -151,10 +167,9 @@ class userAuthController extends Controller {
           statusCode: status,
           message: "کد اعتبارسنجی ارسال نشد",
         });
-      },
+      }
     );
   }
-
   async completeProfile(req, res) {
     await completeProfileSchema.validateAsync(req.body);
     const { user } = req;
@@ -167,15 +182,15 @@ class userAuthController extends Controller {
 
     if (duplicateUser)
       throw createError.BadRequest(
-        "کاربری با این ایمیل قبلا ثبت نام کرده است.",
+        "کاربری با این ایمیل قبلا ثبت نام کرده است."
       );
 
     const updatedUser = await UserModel.findOneAndUpdate(
       { _id: user._id },
       { $set: { name, email, isActive: true } },
-      { new: true },
+      { new: true }
     );
-
+    // await setAuthCookie(res, updatedUser);
     await setAccessToken(res, updatedUser);
     await setRefreshToken(res, updatedUser);
 
@@ -187,7 +202,6 @@ class userAuthController extends Controller {
       },
     });
   }
-
   async updateProfile(req, res) {
     const { _id: userId } = req.user;
     await updateProfileSchema.validateAsync(req.body);
@@ -197,7 +211,7 @@ class userAuthController extends Controller {
       { _id: userId },
       {
         $set: { name, email, biography, phoneNumber },
-      },
+      }
     );
     if (!updateResult.modifiedCount === 0)
       throw createError.BadRequest("اطلاعات ویرایش نشد");
@@ -208,7 +222,6 @@ class userAuthController extends Controller {
       },
     });
   }
-
   async refreshToken(req, res) {
     const userId = await verifyRefreshToken(req);
     const user = await UserModel.findById(userId);
@@ -221,7 +234,6 @@ class userAuthController extends Controller {
       },
     });
   }
-
   async getUserProfile(req, res) {
     const { _id: userId } = req.user;
     const user = await UserModel.findById(userId, { otp: 0 });
@@ -237,19 +249,19 @@ class userAuthController extends Controller {
       },
     });
   }
-
   logout(req, res) {
     const cookieOptions = {
-      maxAge: 0, // به جای یک میلی ثانیه، صفر میذاریم که قطعا پاک شه
+      maxAge: 1,
+      expires: Date.now(),
       httpOnly: true,
       signed: true,
-      sameSite: "none", // باید دقیقا همانی باشد که موقع ایجاد ست کردیم
-      secure: true, // باید دقیقا همانی باشد که موقع ایجاد ست کردیم
+      sameSite: "Lax",
+      secure: true,
       path: "/",
+      domain: process.env.DOMAIN,
     };
-    // ولیو را هم خالی ست می‌کنیم تا کامل overwrite شود
-    res.cookie("accessToken", "", cookieOptions);
-    res.cookie("refreshToken", "", cookieOptions);
+    res.cookie("accessToken", null, cookieOptions);
+    res.cookie("refreshToken", null, cookieOptions);
 
     return res.status(HttpStatus.OK).json({
       StatusCode: HttpStatus.OK,
