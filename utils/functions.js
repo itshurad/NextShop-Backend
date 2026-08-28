@@ -37,7 +37,7 @@ async function setAccessToken(res, user) {
   res.cookie(
     "accessToken",
     await generateToken(user, "1d", process.env.ACCESS_TOKEN_SECRET_KEY),
-    cookieOptions
+    cookieOptions,
   );
 }
 
@@ -54,7 +54,7 @@ async function setRefreshToken(res, user) {
   res.cookie(
     "refreshToken",
     await generateToken(user, "1y", process.env.REFRESH_TOKEN_SECRET_KEY),
-    cookieOptions
+    cookieOptions,
   );
 }
 
@@ -75,7 +75,7 @@ function generateToken(user, expiresIn, secret) {
       (err, token) => {
         if (err) reject(createError.InternalServerError("خطای سروری"));
         resolve(token);
-      }
+      },
     );
   });
 }
@@ -86,7 +86,7 @@ function verifyRefreshToken(req) {
   }
   const token = cookieParser.signedCookie(
     refreshToken,
-    process.env.COOKIE_PARSER_SECRET_KEY
+    process.env.COOKIE_PARSER_SECRET_KEY,
   );
   return new Promise((resolve, reject) => {
     JWT.verify(
@@ -94,20 +94,29 @@ function verifyRefreshToken(req) {
       process.env.REFRESH_TOKEN_SECRET_KEY,
       async (err, payload) => {
         try {
-          if (err)
-            reject(createError.Unauthorized("لطفا حساب کاربری خود شوید"));
+          if (err) {
+            return reject(
+              createError.Unauthorized("لطفا وارد حساب کاربری خود شوید"),
+            );
+          }
+
           const { _id } = payload;
+
           const user = await UserModel.findById(_id, {
             password: 0,
             otp: 0,
             resetLink: 0,
           });
-          if (!user) reject(createError.Unauthorized("حساب کاربری یافت نشد"));
+
+          if (!user) {
+            return reject(createError.Unauthorized("حساب کاربری یافت نشد"));
+          }
+
           return resolve(_id);
         } catch (error) {
-          reject(createError.Unauthorized("حساب کاربری یافت نشد"));
+          return reject(createError.Unauthorized("حساب کاربری یافت نشد"));
         }
-      }
+      },
     );
   });
 }
@@ -160,7 +169,7 @@ async function getUserCartDetail(userId) {
             body: function (productDetail, products) {
               return productDetail.map(function (product) {
                 const quantity = products.find(
-                  (item) => item.productId.valueOf() == product._id.valueOf()
+                  (item) => item.productId.valueOf() == product._id.valueOf(),
                 ).quantity;
                 // const totalPrice = count * product.price;
                 return {
@@ -206,7 +215,7 @@ async function getUserCartDetail(userId) {
                     return {
                       ...product,
                       offPrice: parseInt(
-                        product.price * (1 - coupon.amount / 100)
+                        product.price * (1 - coupon.amount / 100),
                       ),
                     };
                   }
@@ -239,7 +248,7 @@ async function getUserCartDetail(userId) {
                 return (
                   total +
                   parseInt(
-                    (product.price - product.offPrice) * product.quantity
+                    (product.price - product.offPrice) * product.quantity,
                   )
                 );
               }, 0);
@@ -251,7 +260,7 @@ async function getUserCartDetail(userId) {
                 });
               });
               const productIds = productDetail.map((product) =>
-                product._id.valueOf()
+                product._id.valueOf(),
               );
               const description = `${productDetail
                 .map((p) => p.title)
