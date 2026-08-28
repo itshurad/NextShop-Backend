@@ -60,7 +60,7 @@ class userAuthController extends Controller {
 
     const user = await UserModel.findOne(
       { phoneNumber },
-      { password: 0, refreshToken: 0, accessToken: 0 }
+      { password: 0, refreshToken: 0, accessToken: 0 },
     );
     // .populate([
     //   {
@@ -135,7 +135,7 @@ class userAuthController extends Controller {
     });
     const updatedResult = await UserModel.updateOne(
       { phoneNumber },
-      { $set: objectData }
+      { $set: objectData },
     );
     return !!updatedResult.modifiedCount;
   }
@@ -156,7 +156,7 @@ class userAuthController extends Controller {
             statusCode: HttpStatus.OK,
             data: {
               message: `کد تائید برای شماره موبایل ${toPersianDigits(
-                phoneNumber
+                phoneNumber,
               )} ارسال گردید`,
               expiresIn: CODE_EXPIRES,
               phoneNumber,
@@ -167,7 +167,7 @@ class userAuthController extends Controller {
           statusCode: status,
           message: "کد اعتبارسنجی ارسال نشد",
         });
-      }
+      },
     );
   }
   async completeProfile(req, res) {
@@ -182,13 +182,13 @@ class userAuthController extends Controller {
 
     if (duplicateUser)
       throw createError.BadRequest(
-        "کاربری با این ایمیل قبلا ثبت نام کرده است."
+        "کاربری با این ایمیل قبلا ثبت نام کرده است.",
       );
 
     const updatedUser = await UserModel.findOneAndUpdate(
       { _id: user._id },
       { $set: { name, email, isActive: true } },
-      { new: true }
+      { new: true },
     );
     // await setAuthCookie(res, updatedUser);
     await setAccessToken(res, updatedUser);
@@ -211,7 +211,7 @@ class userAuthController extends Controller {
       { _id: userId },
       {
         $set: { name, email, biography, phoneNumber },
-      }
+      },
     );
     if (!updateResult.modifiedCount === 0)
       throw createError.BadRequest("اطلاعات ویرایش نشد");
@@ -234,18 +234,35 @@ class userAuthController extends Controller {
       },
     });
   }
+  // async getUserProfile(req, res) {
+  //   const { _id: userId } = req.user;
+  //   const user = await UserModel.findById(userId, { otp: 0 });
+  //   const cart = (await getUserCartDetail(userId))?.[0];
+  //   const payments = await PaymentModel.find({ user: userId });
+
+  //   return res.status(HttpStatus.OK).json({
+  //     statusCode: HttpStatus.OK,
+  //     data: {
+  //       user,
+  //       payments,
+  //       cart,
+  //     },
+  //   });
+  // }
   async getUserProfile(req, res) {
     const { _id: userId } = req.user;
+
     const user = await UserModel.findById(userId, { otp: 0 });
-    const cart = (await getUserCartDetail(userId))?.[0];
-    const payments = await PaymentModel.find({ user: userId });
+
+    const payments = await PaymentModel.find({
+      user: userId,
+    });
 
     return res.status(HttpStatus.OK).json({
       statusCode: HttpStatus.OK,
       data: {
         user,
         payments,
-        cart,
       },
     });
   }
