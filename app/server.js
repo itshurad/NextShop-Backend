@@ -10,6 +10,7 @@ dotenv.config();
 
 class Application {
   #app = express();
+
   #PORT = process.env.PORT || 5000;
   #DB_URI = process.env.APP_DB;
 
@@ -40,20 +41,32 @@ class Application {
         useNewUrlParser: true,
         useUnifiedTopology: true,
       })
-      .then((res) => console.log("MongoDB connected!!"))
+      .then(() => console.log("MongoDB connected!!"))
       .catch((err) => console.log("Failed to connect to MongoDB", err));
   }
 
   configServer() {
-    // این خط برای محیط‌هایی مثل Vercel که پشت Reverse Proxy هستند به شدت الزامی است
-    // تا کوکی‌های Secure به درستی اعمال شوند
+    // روی Vercel، اپ پشت یک پروکسی اجرا می‌شود؛ برای تشخیص درست پروتکل/https لازم است
     this.#app.set("trust proxy", 1);
+
+    // چون فرانت و بک‌اند روی دو دامنه جدا هستند و withCredentials:true استفاده می‌شود،
+    // origin باید دقیقاً همان آدرس فرانت باشد (نه *) و نباید اسلش انتهایی داشته باشد.
+    const allowedOrigins = (process.env.ALLOW_CORS_ORIGIN || "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
 
     this.#app.use(
       cors({
         credentials: true,
-        origin:
-          process.env.ALLOW_CORS_ORIGIN || "https://next-shop-hurad.vercel.app", // دامین فرانت‌اندت
+        origin: function (origin, callback) {
+          // درخواست‌های بدون origin (مثل Postman یا سرور به سرور) را اجازه بده
+          if (!origin) return callback(null, true);
+          if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+          }
+          return callback(new Error("Not allowed by CORS: " + origin));
+        },
       }),
     );
     this.#app.use(express.json());

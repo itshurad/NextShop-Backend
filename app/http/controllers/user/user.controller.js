@@ -6,13 +6,13 @@ const {
   setRefreshToken,
   verifyRefreshToken,
   getUserCartDetail,
+  getCookieOptions,
 } = require("../../../../utils/functions");
 const createError = require("http-errors");
 const { UserModel } = require("../../../models/user");
 const Kavenegar = require("kavenegar");
 const CODE_EXPIRES = 90 * 1000;
 const { StatusCodes: HttpStatus } = require("http-status-codes");
-const path = require("path");
 const { ROLES } = require("../../../../utils/constants");
 const {
   checkOtpSchema,
@@ -175,7 +175,6 @@ class userAuthController extends Controller {
       { $set: { name, email, isActive: true } },
       { new: true },
     );
-
     await setAccessToken(res, updatedUser);
     await setRefreshToken(res, updatedUser);
 
@@ -239,15 +238,12 @@ class userAuthController extends Controller {
   }
 
   logout(req, res) {
+    // باید همان options ست شدن کوکی (sameSite/secure/path) استفاده شود، فقط با maxAge صفر
     const cookieOptions = {
-      maxAge: 0, // به جای یک میلی ثانیه، صفر میذاریم که قطعا پاک شه
-      httpOnly: true,
-      signed: true,
-      sameSite: "none", // باید دقیقا همانی باشد که موقع ایجاد ست کردیم
-      secure: true, // باید دقیقا همانی باشد که موقع ایجاد ست کردیم
-      path: "/",
+      ...getCookieOptions(0),
+      expires: new Date(0),
     };
-    // ولیو را هم خالی ست می‌کنیم تا کامل overwrite شود
+
     res.cookie("accessToken", "", cookieOptions);
     res.cookie("refreshToken", "", cookieOptions);
 

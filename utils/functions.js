@@ -24,16 +24,42 @@ function toPersianDigits(n) {
   return n.toString().replace(/\d/g, (x) => farsiDigits[parseInt(x)]);
 }
 
-async function setAccessToken(res, user) {
-  const cookieOptions = {
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+/**
+ * تنظیمات مشترک کوکی.
+ * نکته کلیدی: چون فرانت و بک‌اند روی دو دامنه متفاوت هستند (next-shop-hurad.vercel.app
+ * و next-shop-backend-hazel.vercel.app)، این یک درخواست Cross-Site محسوب می‌شود.
+ * برای این‌که مرورگر کوکی را در درخواست‌های Cross-Site ارسال کند، باید:
+ *   - sameSite: "none"
+ *   - secure: true   (اجباری وقتی sameSite برابر none است)
+ * در حالت development (لوکال، هر دو روی localhost) باید sameSite روی "lax" و
+ * secure روی false بماند، چون روی http محلی secure=true کار نمی‌کند.
+ *
+ * هرگز domain را به یک مقدار ثابت مثل "localhost" ست نکنید؛ چون در پروداکشن
+ * باعث رد شدن کامل هدر Set-Cookie توسط مرورگر می‌شود. فقط وقتی COOKIE_DOMAIN
+ * در env تعریف شده باشد (مثلاً برای ساب‌دامین‌های یک دامنه‌ی مشترک) اعمال می‌شود.
+ */
+function getCookieOptions(maxAge) {
+  const isProd = process.env.NODE_ENV === "production";
+
+  const options = {
+    maxAge,
     httpOnly: true,
     signed: true,
-    // وقتی دامنه‌ها متفاوت است باید none باشد
-    sameSite: "none",
-    // روی Vercel و دامنه های متفاوت، secure الزاما باید true باشد
-    secure: true,
+    sameSite: isProd ? "none" : "lax",
+    secure: isProd, // sameSite=none بدون secure توسط مرورگرها رد می‌شود
+    path: "/",
   };
+
+  // فقط اگر صراحتاً در env ست شده باشد اعمال کن (برای دامنه‌های Cross-Origin نباید ست شود)
+  if (process.env.COOKIE_DOMAIN) {
+    options.domain = process.env.COOKIE_DOMAIN;
+  }
+
+  return options;
+}
+
+async function setAccessToken(res, user) {
+  const cookieOptions = getCookieOptions(24 * 60 * 60 * 1000); // 1 روز - هم‌راستا با انقضای توکن
 
   res.cookie(
     "accessToken",
@@ -43,13 +69,7 @@ async function setAccessToken(res, user) {
 }
 
 async function setRefreshToken(res, user) {
-  const cookieOptions = {
-    maxAge: 1000 * 60 * 60 * 24 * 365,
-    httpOnly: true,
-    signed: true,
-    sameSite: "none",
-    secure: true,
-  };
+  const cookieOptions = getCookieOptions(1000 * 60 * 60 * 24 * 365); // 1 سال
 
   res.cookie(
     "refreshToken",
@@ -73,7 +93,7 @@ function generateToken(user, expiresIn, secret) {
       secret || process.env.TOKEN_SECRET_KEY,
       options,
       (err, token) => {
-        if (err) reject(createError.InternalServerError("خطای سروری"));
+        if (err) return reject(createError.InternalServerError("خطای سروری"));
         resolve(token);
       },
     );
@@ -96,14 +116,17 @@ function verifyRefreshToken(req) {
       async (err, payload) => {
         try {
           if (err)
-            reject(createError.Unauthorized("لطفا حساب کاربری خود شوید"));
+            return reject(
+              createError.Unauthorized("لطفا حساب کاربری خود شوید"),
+            );
           const { _id } = payload;
           const user = await UserModel.findById(_id, {
             password: 0,
             otp: 0,
             resetLink: 0,
           });
-          if (!user) reject(createError.Unauthorized("حساب کاربری یافت نشد"));
+          if (!user)
+            return reject(createError.Unauthorized("حساب کاربری یافت نشد"));
           return resolve(_id);
         } catch (error) {
           reject(createError.Unauthorized("حساب کاربری یافت نشد"));
@@ -314,4 +337,5 @@ module.exports = {
   checkProductExist,
   invoiceNumberGenerator,
   secretKeyGenerator,
+  getCookieOptions,
 };
